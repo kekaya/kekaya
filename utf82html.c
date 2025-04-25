@@ -7,6 +7,9 @@
 #include <stdlib.h>
 //#define DBG_PRINT
 
+#define CHAT_GPT_WATERMARK 0x202f
+
+unsigned anzahl_an_chatgpt_watermarks = 0;
 
 void help() {
    fprintf(stdout,"$doc");
@@ -118,6 +121,9 @@ void from_utf8 (FILE *in, FILE *out)
               printf("DBG : UTF8 ASCII NUM (pos %d) %s \n",i,ch);
             #else
               fprintf(out, "&#x%04x;", ch);
+              if(ch == CHAT_GPT_WATERMARK){
+                 anzahl_an_chatgpt_watermarks++;
+              }
             #endif //DBG_PRINT
          }else{
             #ifdef DBG_PRINT
@@ -159,6 +165,9 @@ int main (int argc, char *argv[])
 
       fclose(fp);
       argc--; argv++;
+   }
+   if(anzahl_an_chatgpt_watermarks>0){
+     fprintf(stderr,"Da hat wohl der chat GPT %d mal seine Finger beim Text schreiben dringehabt\nruf mal \n./utf82html %s | grep %x 2>/dev/null\nauf, um  die Watermark Textstellen zu sehen\n",anzahl_an_chatgpt_watermarks,argv[0],CHAT_GPT_WATERMARK);
    }
    return 0;
 }

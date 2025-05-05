@@ -32,11 +32,17 @@
 # Beim nächsten Update/commit tu ich wahrscheinlich die Ticketnummer von Gotcourts mit rein 
 #
 
+#
+# Ein Datum vom Starttag alle zwei Wochen ausgeben , bis das Ende Datum erreicht ist
+#
+
 STARTTAG="7 May 2025"
 WOCHEN_IDENTIFIKATION_IM_DATE_COMMAND="week"
 WOCHENWIDERHOLUNGSINTERVAL=2
 WOCHENOFFSET_STARTWERT=0
 ENDEDATUM=20251101
+
+echo So, wir schreiben jetzt mal das Datum raus, das am $STARTTAG startet und bis zum Endedatum $ENDEDATUM geht
 
 w=$WOCHENOFFSET_STARTWERT
 
@@ -48,6 +54,49 @@ do
   if [ $VERGLEICHSDATUM -lt $ENDEDATUM ]
   then
     echo "Training am " $(date +%F -d "$CONFIG_STRING")
+    let w=$w+$WOCHENWIDERHOLUNGSINTERVAL
+  else
+   weitermachen=0
+  fi
+done
+
+STARTTAG="5 May 2025"
+WOCHEN_IDENTIFIKATION_IM_DATE_COMMAND="week"
+WOCHENWIDERHOLUNGSINTERVAL=1
+STARTZEIT_1=18
+STARTZEIT_2=17
+DAUER_IN_H=3
+WOCHENOFFSET_STARTWERT=0
+ENDEDATUM=20251101
+DATUMSFORMAT="%V;%F"
+
+echo So, wir schreiben jetzt eine Tabelle raus, die am $STARTTAG startet und bis zum Endedatum $ENDEDATUM geht
+echo Dabei reservieren wir am ersten Tag immer $DAUER_IN_H Stunden von $(date +%T -d "$STARTZEIT_1") am Montag und 
+echo von $(date +%T -d "$STARTZEIT_2") am Mittwoch
+
+
+w=$WOCHENOFFSET_STARTWERT
+
+weitermachen=1
+while [ $weitermachen -eq 1 ]
+do
+  CONFIG_STRING="$STARTTAG  + $w $WOCHEN_IDENTIFIKATION_IM_DATE_COMMAND"
+  VERGLEICHSDATUM=$(date +%Y%m%d -d "$CONFIG_STRING")
+  if [ $VERGLEICHSDATUM -lt $ENDEDATUM ]
+  then
+    u=$STARTZEIT_1
+    echo  "$(date +$DATUMSFORMAT -d "$CONFIG_STRING") ; $(date +%T -d "$u")"
+    let u=$u+1
+    echo  "$(date +$DATUMSFORMAT  -d "$CONFIG_STRING") ; $(date +%T -d "$u")"
+    let u=$u+1
+    echo  "$(date +$DATUMSFORMAT  -d "$CONFIG_STRING") ; $(date +%T -d "$u")"
+    u=$STARTZEIT_2
+    CONFIG_STRING="$STARTTAG  + 2 day + $w $WOCHEN_IDENTIFIKATION_IM_DATE_COMMAND"
+    echo  "$(date +$DATUMSFORMAT  -d "$CONFIG_STRING") ; $(date +%T -d "$u")"
+    let u=$u+1
+    echo  "$(date +$DATUMSFORMAT  -d "$CONFIG_STRING") ; $(date +%T -d "$u")"
+    let u=$u+1
+    echo  "$(date +$DATUMSFORMAT  -d "$CONFIG_STRING") ; $(date +%T -d "$u")"
     let w=$w+$WOCHENWIDERHOLUNGSINTERVAL
   else
    weitermachen=0

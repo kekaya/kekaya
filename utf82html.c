@@ -37,7 +37,7 @@ static const UTF8Mapping utf8_html_mapping[] = {
 //#define DBG_PRINT
 
 #define CHAT_GPT_WATERMARK 0x202f
-
+#define DEBUG_BUFFER_IN_BYTES 10
 
 int global_utf_return_code = 0;
 
@@ -56,6 +56,8 @@ const char * plain_ascii_check(){
 }
 
 const char*  hex2html(unsigned int ch){
+  int found=0;
+  
   switch(ch){
     case 0xe4:
       return "&auml;";
@@ -95,6 +97,24 @@ const char*  hex2html(unsigned int ch){
   }
 }
 
+unsigned char debug_buffer[DEBUG_BUFFER_IN_BYTES];
+int  debug_buffer_pointer=0;
+
+void initialize_buffers(void){
+  int i;
+  for(i=0;i<DEBUG_BUFFER_IN_BYTES;i++){
+    debug_buffer[i]=0;
+  }
+}
+void debug_buffer_update(char chr){
+  debug_buffer[debug_buffer_pointer] = (unsigned char)chr;
+  debug_buffer_pointer++;
+  if(debug_buffer_pointer == DEBUG_BUFFER_IN_BYTES){
+    debug_buffer_pointer=0;
+  }
+}
+
+
 void from_utf8 (FILE *in, FILE *out)
 {
    char buf[4096 + 17];
@@ -116,7 +136,7 @@ void from_utf8 (FILE *in, FILE *out)
       for (i=0; i<usable; i++) {
          int t;
          unsigned ch, len;
-
+         debug_buffer_update(buf[i]);
          /* properties of UTF-8 chars */
          static struct { unsigned minval; int len; char b0, b0mask; }
          uprop[] = {
@@ -127,7 +147,7 @@ void from_utf8 (FILE *in, FILE *out)
             { 1<<26, 6, (char)0xfc, (char)0xfe },
             { 0, 0, 0, 0}
          };
-
+         // CHECK 1: If ASCII , simply print
          if (!(buf[i] & 0x80)) {
             plain_ascii_check();
             #ifdef DBG_PRINT
@@ -138,21 +158,31 @@ void from_utf8 (FILE *in, FILE *out)
 
             continue;
          }
-         for (t = 0; uprop[t].minval; t++)
-            if ((buf[i] & uprop[t].b0mask) == uprop[t].b0)
+         // CHECK 2: Bitmask of checked character indicates the properties for the next chars
+         for (t = 0; uprop[t].minval; t++){
+            if ((buf[i] & uprop[t].b0mask) == uprop[t].b0){
                break;
-         if (!uprop[t].minval)
+            }
+         }
+         if (!uprop[t].minval){
+            fprintf(stderr, "UTF-8 minimum value check of 0x%02x failed\n",(unsigned char)buf[i]);
             goto invalid;
+         }
 
          ch = buf[i] & ~uprop[t].b0mask;
          for (len = uprop[t].len - 1; len; len--,i++) {
-            if ((buf[i+1] & 0xc0) != 0x80)
+            debug_buffer_update(buf[i+1]);
+            if ((buf[i+1] & 0xc0) != 0x80){
+               fprintf(stderr, "UTF-8 wrong bitmap: coding length: %d, char %d of %d \n",uprop[t].len,uprop[t].len-len,uprop[t].len);
                goto invalid;
+            }
 
             ch = (ch << 6) | (buf[i+1] & 0x3f);
          }
-         if (ch < uprop[t].minval)
+         if (ch < uprop[t].minval){
+            fprintf(stderr, "UTF-8 : minimum value %d >= %d\n",uprop[t].minval,ch);
             goto invalid;
+         }
 
          if(ch > 255){
             #ifdef DBG_PRINT
@@ -190,7 +220,7 @@ int main (int argc, char *argv[])
    }
    return 1;
    */
-
+   initialize_buffers();
    if (argc == 1) {
       from_utf8(stdin, stdout);
       return 0;

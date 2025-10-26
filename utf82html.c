@@ -1,6 +1,10 @@
 // Source written in 2004 by Peter Samuelson
 // Copyright abandoned by the author
 
+#define ERROR_CODE_FILENAME_NOT_SET   1
+#define ERROR_NO_ERROR_EXPECTED_USAGE 0
+
+#define STRING_UTF_NOT_FOUND "[[NOT FOUND]]"
 
 typedef struct {
     unsigned int utf8_codepoint;
@@ -30,6 +34,10 @@ static const UTF8Mapping utf8_html_mapping[] = {
     {0xFF, "&yuml;"}
 };
 
+#define VALUE_RANGE_U8 256
+static const char *hex2html_array[VALUE_RANGE_U8];
+
+
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -57,7 +65,9 @@ const char * plain_ascii_check(){
 
 const char*  hex2html(unsigned int ch){
   int found=0;
-  
+  ch &= 0xFF;
+  return hex2html_array[ch];
+  /*
   switch(ch){
     case 0xe4:
       return "&auml;";
@@ -95,6 +105,7 @@ const char*  hex2html(unsigned int ch){
       sprintf(memory4x,"<b>UTF-8 char not found(0x%02x)</b>",ch);
       return (const char *)memory4x;
   }
+  */
 }
 
 unsigned char debug_buffer[DEBUG_BUFFER_IN_BYTES];
@@ -184,7 +195,7 @@ void from_utf8 (FILE *in, FILE *out)
             goto invalid;
          }
 
-         if(ch > 255){
+         if(ch >= VALUE_RANGE_U8){
             #ifdef DBG_PRINT
               printf("DBG : UTF8 ASCII NUM (pos %d) %s \n",i,ch);
             #else
@@ -213,34 +224,83 @@ void from_utf8 (FILE *in, FILE *out)
    }
 }
 
+void init_all_supported_utf_8(void){
+   static const char*char_not_found = STRING_UTF_NOT_FOUND;
+   int found;
+   for (unsigned int j=0;j<VALUE_RANGE_U8;j++){
+       found=0;
+       for (int i = 0; i< sizeof(utf8_html_mapping)/sizeof(UTF8Mapping);i++){
+         if(j==utf8_html_mapping[i].utf8_codepoint){
+           hex2html_array[j] = utf8_html_mapping[i].html_entity;
+           found = 1;
+           break;
+         }
+         //printf("%02x --> %s\n",utf8_html_mapping[i].utf8_codepoint,utf8_html_mapping[i].html_entity);
+       }
+       if(found == 0){
+         hex2html_array[j] = char_not_found;
+       }
+   }
+}
+
+void print_all_supported_utf_8(void){
+   printf("<html><title>dec hex to HTML</title><body><table border=1>\n");
+   printf("<tr><td>dec</td> <td>hex</td> <td>char</td> </tr>\n");
+
+   for (unsigned int j=0;j<VALUE_RANGE_U8;j++){
+     printf("<tr><td>%3d</td> <td>%02x</td> <td>%s</td> </tr>\n",j,j,hex2html_array[j]);   
+   }  
+   printf("</table></body></html>\n");
+}
+
+
 int main (int argc, char *argv[])
 {
-   /* for (int i = 0; i< sizeof(utf8_html_mapping)/sizeof(UTF8Mapping);i++){
-     printf("%02x --> %s\n",utf8_html_mapping[i].utf8_codepoint,utf8_html_mapping[i].html_entity);
-   }
-   return 1;
-   */
+   char *filename = NULL;
+
+   // init mapping of UTF-8 characters
+   init_all_supported_utf_8();
    initialize_buffers();
+   
    if (argc == 1) {
-      from_utf8(stdin, stdout);
+      //from_utf8(stdin, stdout);
       return 0;
    }
    while (argc > 1) {
       if (argv[1][0] == '-' ) {
          switch(argv[1][1]) {
-            case 'h': help(); exit(0);
-            case 'V': printf("$version\n"); exit(0);
+            case 'h': 
+              help(); 
+              exit(0);
+              break;
+            case 'i': 
+              filename = argv[2];
+              break;
+            case 'd': 
+              print_all_supported_utf_8();
+              exit(ERROR_NO_ERROR_EXPECTED_USAGE);
+              break;
+            case 'V': 
+              printf("$version\n"); 
+              exit(ERROR_NO_ERROR_EXPECTED_USAGE);
+              break;
          };
       }
-      FILE *fp = fopen(argv[1], "r");
+      argc--; argv++;
+   }
+   
+      if(filename == NULL){
+        fprintf(stderr,"ERROR : filename of file to be opened not set\n");
+        exit(ERROR_CODE_FILENAME_NOT_SET);
+      }
+      FILE *fp = fopen(filename, "r");
       if (fp)
          from_utf8(fp, stdout);
       else
          perror("fopen");
 
       fclose(fp);
-      argc--; argv++;
-   }
+
    if(anzahl_an_chatgpt_watermarks>0){
      fprintf(stderr,"Da hat wohl der chat GPT %d mal seine Finger beim Text schreiben dringehabt\nruf mal \n./utf82html %s | grep %x 2>/dev/null\nauf, um  die Watermark Textstellen zu sehen\n",anzahl_an_chatgpt_watermarks,argv[0],CHAT_GPT_WATERMARK);
    }

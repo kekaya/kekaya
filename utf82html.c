@@ -1,10 +1,16 @@
 // Source written in 2004 by Peter Samuelson
 // Copyright abandoned by the author
 
+#define ERROR_FILE_OPEN_ISSUE   3
+#define ERROR_ARGUMENT_ISSUE   2
 #define ERROR_CODE_FILENAME_NOT_SET   1
 #define ERROR_NO_ERROR_EXPECTED_USAGE 0
 
 #define STRING_UTF_NOT_FOUND "[[NOT FOUND]]"
+
+#define READ_FROM_FILE_BUFFER_IN_BYTES 4096
+
+#define ASCII_CHAR_MASK 0x80
 
 typedef struct {
     unsigned int utf8_codepoint;
@@ -12,6 +18,15 @@ typedef struct {
 } UTF8Mapping;
 
 static const UTF8Mapping utf8_html_mapping[] = {
+    // from https://www.w3schools.com/charsets/ref_html_ansi.asp
+    // The Windows-1252 Character Set
+    {0x80,"&euro;"},{0x82,"&sbquo;"},{0x83,"&fnof;"},{0x84,"&bdquo;"},{0x85,"&hellip;"},
+    {0x86,"&dagger;"},{0x87,"&Dagger;"},{0x88,"&circ;"},{0x89,"&permil;"},{0x8a,"&Scaron;"},
+    {0x8b,"&lsaquo;"},{0x8c,"&OElig;"},{0x8e,"&Zcaron;"},{0x91,"&lsquo;"},{0x92,"&rsquo;"},
+    {0x93,"&ldquo;"},{0x94,"&rdquo;"},{0x95,"&bull;"},{0x96,"&ndash;"},{0x97,"&mdash;"},
+    {0x98,"&tilde;"},{0x99,"&trade;"},{0x9a,"&scaron;"},{0x9b,"&rsaquo;"},{0x9c,"&oelig;"},
+    {0x9e,"&zcaron;"},{0x9f,"&Yuml;"},
+    // basis
     {0xA0, "&nbsp;"}, {0xA1, "&iexcl;"}, {0xA2, "&cent;"}, {0xA3, "&pound;"}, {0xA4, "&curren;"},
     {0xA5, "&yen;"}, {0xA6, "&brvbar;"}, {0xA7, "&sect;"}, {0xA8, "&uml;"}, {0xA9, "&copy;"},
     {0xAA, "&ordf;"}, {0xAB, "&laquo;"}, {0xAC, "&not;"}, {0xAD, "&shy;"}, {0xAE, "&reg;"},
@@ -31,10 +46,12 @@ static const UTF8Mapping utf8_html_mapping[] = {
     {0xF0, "&eth;"}, {0xF1, "&ntilde;"}, {0xF2, "&ograve;"}, {0xF3, "&oacute;"}, {0xF4, "&ocirc;"},
     {0xF5, "&otilde;"}, {0xF6, "&ouml;"}, {0xF7, "&divide;"}, {0xF8, "&oslash;"}, {0xF9, "&ugrave;"},
     {0xFA, "&uacute;"}, {0xFB, "&ucirc;"}, {0xFC, "&uuml;"}, {0xFD, "&yacute;"}, {0xFE, "&thorn;"},
-    {0xFF, "&yuml;"}
+    {0xFF, "&yuml;"},
+    // UTF-8 from Windows-1252 Character Set imported 
+    {0x178, "&Yuml;"}
 };
 
-#define VALUE_RANGE_U8 256
+#define VALUE_RANGE_U8 512
 static const char *hex2html_array[VALUE_RANGE_U8];
 
 
@@ -51,8 +68,13 @@ int global_utf_return_code = 0;
 
 unsigned anzahl_an_chatgpt_watermarks = 0;
 
-void help() {
-   fprintf(stdout,"$doc");
+void help(char *prg) {
+   fprintf(stderr,"usage %s \n",prg);
+   fprintf(stderr,"  arguments\n");
+   fprintf(stderr,"  -H : print HTML header trailer\n");
+   fprintf(stderr,"  -i <input file>:UTF-8 input file to be converted\n");
+   fprintf(stderr,"  -d: print HTML list of all mappings and quit\n");
+   fprintf(stderr,"  -v: debug printing\n");
    exit(0);
 }
 
@@ -65,7 +87,7 @@ const char * plain_ascii_check(){
 
 const char*  hex2html(unsigned int ch){
   int found=0;
-  ch &= 0xFF;
+  ch &= (VALUE_RANGE_U8-1);
   return hex2html_array[ch];
   /*
   switch(ch){
@@ -126,28 +148,28 @@ void debug_buffer_update(char chr){
 }
 
 
-void from_utf8 (FILE *in, FILE *out)
+void from_utf8 (FILE *in, FILE *out, bool dbg)
 {
-   char buf[4096 + 17];
-   size_t len = 0;
+   char work_buffer[READ_FROM_FILE_BUFFER_IN_BYTES + 17];
+   size_t buffer_length = 0;
 
    while (!feof(in)) {
       size_t usable, i;
 
-      len += fread(buf+len, 1, 4096, in);
-      #ifdef DBG_PRINT
-        printf("DBG : len %d : ",(int)len);
-      #endif //DBG_PRINT
-      buf[len] = 0;
-      if (feof(in) || len < 16)
-         usable = len;
+      buffer_length += fread(work_buffer+buffer_length, 1, READ_FROM_FILE_BUFFER_IN_BYTES, in);
+      if(dbg){
+        fprintf(stderr,"DBG : buffer_length %d : \n",(int)buffer_length);
+      }
+      work_buffer[buffer_length] = 0;
+      if (feof(in) || buffer_length < 16)
+         usable = buffer_length;
       else
-         usable = len - 16;
+         usable = buffer_length - 16;
 
       for (i=0; i<usable; i++) {
-         int t;
-         unsigned ch, len;
-         debug_buffer_update(buf[i]);
+         int utf_prop_index;
+         unsigned ch, usable_len;
+         debug_buffer_update(work_buffer[i]);
          /* properties of UTF-8 chars */
          static struct { unsigned minval; int len; char b0, b0mask; }
          uprop[] = {
@@ -159,39 +181,39 @@ void from_utf8 (FILE *in, FILE *out)
             { 0, 0, 0, 0}
          };
          // CHECK 1: If ASCII , simply print
-         if (!(buf[i] & 0x80)) {
+         if (!(work_buffer[i] & ASCII_CHAR_MASK)) {
             plain_ascii_check();
             #ifdef DBG_PRINT
-              printf("DBG : plain ASCII (pos %d) %c \n",i,buf[i]);
+              printf("DBG : plain ASCII (pos %d) %c \n",i,work_buffer[i]);
             #else
-              putc(buf[i], out);
+              putc(work_buffer[i], out);
             #endif //DBG_PRINT
 
             continue;
          }
          // CHECK 2: Bitmask of checked character indicates the properties for the next chars
-         for (t = 0; uprop[t].minval; t++){
-            if ((buf[i] & uprop[t].b0mask) == uprop[t].b0){
+         for (utf_prop_index = 0; uprop[utf_prop_index].minval; utf_prop_index++){
+            if ((work_buffer[i] & uprop[utf_prop_index].b0mask) == uprop[utf_prop_index].b0){
                break;
             }
          }
-         if (!uprop[t].minval){
-            fprintf(stderr, "UTF-8 minimum value check of 0x%02x failed\n",(unsigned char)buf[i]);
+         if (!uprop[utf_prop_index].minval){
+            fprintf(stderr, "UTF-8 minimum value check of 0x%02x failed\n",(unsigned char)work_buffer[i]);
             goto invalid;
          }
 
-         ch = buf[i] & ~uprop[t].b0mask;
-         for (len = uprop[t].len - 1; len; len--,i++) {
-            debug_buffer_update(buf[i+1]);
-            if ((buf[i+1] & 0xc0) != 0x80){
-               fprintf(stderr, "UTF-8 wrong bitmap: coding length: %d, char %d of %d \n",uprop[t].len,uprop[t].len-len,uprop[t].len);
+         ch = work_buffer[i] & ~uprop[utf_prop_index].b0mask;
+         for (usable_len = uprop[utf_prop_index].len - 1; usable_len; usable_len--,i++) {
+            debug_buffer_update(work_buffer[i+1]);
+            if ((work_buffer[i+1] & 0xc0) != 0x80){
+               fprintf(stderr, "UTF-8 wrong bitmap: coding length: %d, char %d of %d \n",uprop[utf_prop_index].len,uprop[utf_prop_index].len-usable_len,uprop[utf_prop_index].len);
                goto invalid;
             }
 
-            ch = (ch << 6) | (buf[i+1] & 0x3f);
+            ch = (ch << 6) | (work_buffer[i+1] & 0x3f);
          }
-         if (ch < uprop[t].minval){
-            fprintf(stderr, "UTF-8 : minimum value %d >= %d\n",uprop[t].minval,ch);
+         if (ch < uprop[utf_prop_index].minval){
+            fprintf(stderr, "UTF-8 : minimum value %d >= %d\n",uprop[utf_prop_index].minval,ch);
             goto invalid;
          }
 
@@ -218,9 +240,9 @@ void from_utf8 (FILE *in, FILE *out)
          global_utf_return_code++;
          fprintf(out, "&#xfffd;"); /* "REPLACEMENT CHARACTER" */
       }
-      if (i < len)
-         memcpy(buf, buf+i, len-i);
-      len -= i;
+      if (i < buffer_length)
+         memcpy(work_buffer, work_buffer+i, buffer_length-i);
+      buffer_length -= i;
    }
 }
 
@@ -257,32 +279,43 @@ void print_all_supported_utf_8(void){
 int main (int argc, char *argv[])
 {
    char *filename = NULL;
+   char *prg = argv[0];
+   bool HTML_header_trailer = false;   
+   bool dbg = false;   
 
    // init mapping of UTF-8 characters
    init_all_supported_utf_8();
    initialize_buffers();
    
    if (argc == 1) {
-      //from_utf8(stdin, stdout);
+      help(prg);
       return 0;
    }
    while (argc > 1) {
       if (argv[1][0] == '-' ) {
          switch(argv[1][1]) {
             case 'h': 
-              help(); 
+              help(prg); 
+              exit(0);
+              break;
+            case 'H': 
+              HTML_header_trailer = true; 
               exit(0);
               break;
             case 'i': 
-              filename = argv[2];
+              if(argc>2){
+                filename = argv[2];
+              }else{
+                fprintf(stderr,"ERROR : not enough arguments for filename\n");                
+                exit(ERROR_ARGUMENT_ISSUE);
+              }
               break;
             case 'd': 
               print_all_supported_utf_8();
               exit(ERROR_NO_ERROR_EXPECTED_USAGE);
               break;
-            case 'V': 
-              printf("$version\n"); 
-              exit(ERROR_NO_ERROR_EXPECTED_USAGE);
+            case 'v': 
+              dbg = true;
               break;
          };
       }
@@ -291,15 +324,26 @@ int main (int argc, char *argv[])
    
       if(filename == NULL){
         fprintf(stderr,"ERROR : filename of file to be opened not set\n");
+        help(prg);
         exit(ERROR_CODE_FILENAME_NOT_SET);
       }
       FILE *fp = fopen(filename, "r");
+      if(fp == NULL){
+        fprintf(stderr,"ERROR: file %s could not beopened\n",filename);
+        exit(ERROR_FILE_OPEN_ISSUE);
+      }
+      if(HTML_header_trailer){
+        printf("<html>\n  <title>test</title>\n<body>\n");
+      }
       if (fp)
-         from_utf8(fp, stdout);
+         from_utf8(fp, stdout,dbg);
       else
          perror("fopen");
 
       fclose(fp);
+      if(HTML_header_trailer){
+        printf("</body>\n<html>\n");
+      }
 
    if(anzahl_an_chatgpt_watermarks>0){
      fprintf(stderr,"Da hat wohl der chat GPT %d mal seine Finger beim Text schreiben dringehabt\nruf mal \n./utf82html %s | grep %x 2>/dev/null\nauf, um  die Watermark Textstellen zu sehen\n",anzahl_an_chatgpt_watermarks,argv[0],CHAT_GPT_WATERMARK);

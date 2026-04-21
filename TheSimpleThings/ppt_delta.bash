@@ -112,7 +112,7 @@ awk  -v html=$RESULT_HTML -v left="$(basename $PPT1)" -v right="$(basename) $PPT
             print "  <td>"slide[i]"</td>" >html
             print "  <td>"str[i,"left"]"</td>" >html
             print "  <td>"str[i,"right"]"</td>" >html
-            print "</tr>"
+            print "</tr>" >html
           }
           print "</table>" >html
           print "<hr>ASCII result file:<br><pre>"  >html

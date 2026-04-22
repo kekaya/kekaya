@@ -21,20 +21,45 @@
 
 
 RESULT_FILE_TRUNK="/tmp/ppt1_vs_ppt2_$(date +%Y_%m_%d__%H_%M_%S)"
+#
+# you can generate files from a PPT doing
+#   * libreoffice --headless --convert-to pdf <power point file>
+#   * pdftoppm -jpeg <PDF file created from Powerpoint>  pic
+#     ... so you have 
+#            pic-01.jpg
+#            pic-02.jpg
+#            pic-03.jpg
+#            pic-04.jpg
+#            .... pictures for each slide
+#
+#
+SLIDE_PHOTOS=""
 
 if [ $# -lt 2 ]
 then 
-  echo "usage : $0 <ppt 1> <ppt 2> [trunk for result path , default: $RESULT_FILE_TRUNK ]"
+  echo "usage : $0 <ppt 1> <ppt 2> [trunk for result path , default: $RESULT_FILE_TRUNK or folder where slide photos are stored ]"
   exit 1
 fi
 if [ $# -gt 2 ]
 then 
-  RESULT_FILE_TRUNK=$3
+  if [ -d $3 ]
+  then
+      SLIDE_PHOTO_FOLDER=$3
+      for s in $(ls -1 $SLIDE_PHOTO_FOLDER/*jpg)
+      do
+        SLIDE_PHOTOS="$SLIDE_PHOTOS $(basename $s)"
+      done
+      RESULT_FILE_TRUNK=$SLIDE_PHOTO_FOLDER"/$(basename $RESULT_FILE_TRUNK)"
+      echo slide photos $SLIDE_PHOTOS
+  else
+    RESULT_FILE_TRUNK=$3
+  fi
 fi
+echo result file trunk $RESULT_FILE_TRUNK
 
 HERE=$(pwd)
-RESULT_FILE="${RESULT_FILE_TRUNK}.log"
-RESULT_HTML="${RESULT_FILE_TRUNK}.html"
+RESULT_FILE=$(readlink -f "${RESULT_FILE_TRUNK}.log")
+RESULT_HTML=$(readlink -f "${RESULT_FILE_TRUNK}.html")
 
 PPT1=$(readlink -f $1)
 PPT2=$(readlink -f $2)
@@ -61,7 +86,7 @@ grep -oP '(?<=<a:t>).*?(?=</a:t>)' ppt/slides/*.xml > slides.txt
 
 diff  ${FOLDER_1}/slides.txt ${FOLDER_2}/slides.txt >>$RESULT_FILE
 
-awk  -v html=$RESULT_HTML -v left="$(basename $PPT1)" -v right="$(basename) $PPT2" -v ascii_result=$RESULT_FILE 'BEGIN{
+awk  -v slide_photos="$SLIDE_PHOTOS" -v html=$RESULT_HTML -v left="$(basename $PPT1)" -v right="$(basename $PPT2)" -v ascii_result=$RESULT_FILE 'BEGIN{
          g_cnt=0;
          state="idle"
          if(!html){
@@ -69,6 +94,17 @@ awk  -v html=$RESULT_HTML -v left="$(basename $PPT1)" -v right="$(basename) $PPT
          }
          if(!title){
            title = "left " ascii2html(left) ", right " ascii2html(right)
+         }
+         if(slide_photos){
+           n = split(slide_photos,a,/[ ]+/);
+           for(i=1;i<=n;i++){
+            if(a[i]){
+             m=split(a[i],b,/[\-\.]+/);
+             t_idx = sprintf("%d",b[m-1])
+             g_pic[t_idx] = "<a href="a[i]" target=pic><img src="a[i]" height=\"200\"></a>"
+             print "slide " t_idx ": " a[i]
+            }
+           }
          }
         }
         {
@@ -106,12 +142,14 @@ awk  -v html=$RESULT_HTML -v left="$(basename $PPT1)" -v right="$(basename) $PPT
           print "  <td>slide NR</td>" >html
           print "  <td>left side <br><b>"ascii2html(left)"</b> </td>" >html
           print "  <td>right side <br><b>"ascii2html(right)"</b></td>" >html
+          print "  <td>Picture of slide if available</td>" >html
           print "</tr>" >html
           for (i=1;i<=g_cnt;i++){
             print "<tr>" >html
             print "  <td>"slide[i]"</td>" >html
             print "  <td>"str[i,"left"]"</td>" >html
             print "  <td>"str[i,"right"]"</td>" >html
+            print "  <td>"g_pic[slide[i]] "</td>" >html
             print "</tr>" >html
           }
           print "</table>" >html
